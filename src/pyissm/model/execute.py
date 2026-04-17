@@ -8,6 +8,7 @@ import os
 import datetime
 import warnings
 import collections
+import time
 
 from pyissm import model, tools
 
@@ -1109,9 +1110,12 @@ def solve(md,
         if md.verbose.solution:
             print('Waiting for job to complete...')
         done = wait_on_lock(md)
-        if md.verbose.solution:
-            print('Job completed -- loading results from cluster...')
-        md = load_results_from_cluster(md)
+        if done:
+            if md.verbose.solution:
+                print('Job completed -- loading results from cluster...')
+            md = load_results_from_cluster(md)
+        else:
+            print('Model results are not available yet. Load them later with md = load_results_from_cluster(md)')
     else:
         print('Model results must be loaded manually with md = load_results_from_cluster(md)')
 
@@ -1309,8 +1313,35 @@ def postprocess_qmu(md):
     return
 
 def wait_on_lock(md):
-    print('wait_on_lock not implemented yet')
-    return
+    """Wait for a cluster run to produce its completion markers.
+
+    For shared-filesystem cluster runs such as Gadi, ISSM writes a ``.lock`` file and
+    the gathered ``.outbin`` file into the runtime directory when the solve finishes.
+    Poll for either file until ``md.settings.waitonlock`` minutes have elapsed.
+    """
+
+    runtime_dir = os.path.join(md.cluster.executionpath, md.private.runtimename)
+    lock_file = os.path.join(runtime_dir, md.miscellaneous.name + '.lock')
+    outbin_file = os.path.join(runtime_dir, md.miscellaneous.name + '.outbin')
+
+    timeout_minutes = md.settings.waitonlock
+    if timeout_minutes <= 0:
+        return False
+
+    deadline = time.time() + timeout_minutes * 60
+    poll_interval = 5
+
+    while time.time() <= deadline:
+        if os.path.exists(outbin_file) or os.path.exists(lock_file):
+            return True
+        time.sleep(poll_interval)
+
+    warnings.warn(
+        'pyissm.execute.wait_on_lock: Timed out while waiting for cluster results in '
+        f"'{runtime_dir}'. Load results later with md = load_results_from_cluster(md) "
+        'once the job has finished.'
+    )
+    return False
 
 def load_results_from_cluster(md,
                               no_log = False,
