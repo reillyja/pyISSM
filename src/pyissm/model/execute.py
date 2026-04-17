@@ -1386,7 +1386,28 @@ def load_results_from_cluster(md,
     md.cluster.download(md.private.runtimename, file_list)
 
     # Load results from downloaded files
-    md = load_results_from_disk(md, md.miscellaneous.name + '.outbin')
+    result_file = md.miscellaneous.name + '.outbin'
+    if not os.path.exists(result_file):
+        runtime_dir = os.path.join(md.cluster.executionpath, runtime_name)
+        log_files = [md.miscellaneous.name + '.outlog', md.miscellaneous.name + '.errlog']
+        raise FileNotFoundError(
+            'pyissm.execute.load_results_from_cluster: Expected output file '
+            f"'{result_file}' was not found after downloading results from cluster "
+            f"'{md.cluster.name}'. This usually means the cluster job failed before "
+            'writing model output. Check the cluster logs '
+            f"({', '.join(log_files)}) and the runtime directory '{runtime_dir}' "
+            'for the underlying error.'
+        )
+
+    loaded_md = load_results_from_disk(md, result_file)
+    if loaded_md is None:
+        runtime_dir = os.path.join(md.cluster.executionpath, runtime_name)
+        raise RuntimeError(
+            'pyissm.execute.load_results_from_cluster: Result loading returned no '
+            f"model object for '{result_file}'. Check the cluster logs and runtime "
+            f"directory '{runtime_dir}' for the underlying job or file-format error."
+        )
+    md = loaded_md
 
     # Erase log and output files
     for i in range(len(file_list)):
