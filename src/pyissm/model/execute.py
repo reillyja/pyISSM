@@ -92,6 +92,92 @@ def marshall(md):
         print(f'marshall error message: could not close \'{md.miscellaneous.name}.bin\' file for binary writing due to: {e}')
 
 
+def prepare_nuopc_case(md,
+                       case_dir = '.',
+                       solution_string = 'transient',
+                       check_consistency = True):
+    """
+    Prepare an ISSM case directory for the in-process NUOPC cap workflow.
+
+    This helper writes the standard ISSM ``.bin`` and ``.toolkits`` files into
+    ``case_dir`` without launching the standalone ISSM executable. The resulting
+    directory can then be consumed by the first-version ISSM NUOPC cap.
+
+    Parameters
+    ----------
+    md : object
+        ISSM model object.
+    case_dir : str, default='.'
+        Directory where the prepared ISSM case files will be written.
+    solution_string : str, default='transient'
+        User-facing solution selector. This first NUOPC workflow only supports
+        transient coupling.
+    check_consistency : bool, default=True
+        Whether to run model consistency checks before writing case files.
+
+    Returns
+    -------
+    dict
+        Dictionary containing ``case_dir``, ``model_name``, and
+        ``solution_name`` for use when configuring the NUOPC component.
+    """
+
+    solution_map = {
+        'sb': 'StressbalanceSolution', 'stressbalance': 'StressbalanceSolution',
+        'mt': 'MasstransportSolution', 'masstransport': 'MasstransportSolution',
+        'oceant': 'OceantransportSolution', 'oceantransport': 'OceantransportSolution',
+        'th': 'ThermalSolution', 'thermal': 'ThermalSolution',
+        'st': 'SteadystateSolution', 'steadystate': 'SteadystateSolution',
+        'tr': 'TransientSolution', 'transient': 'TransientSolution',
+        'mc': 'BalancethicknessSolution', 'balancethickness': 'BalancethicknessSolution',
+        'mcsoft': 'BalancethicknessSoftSolution',
+        'bv': 'BalancevelocitySolution', 'balancevelocity': 'BalancevelocitySolution',
+        'bsl': 'BedSlopeSolution', 'bedslope': 'BedSlopeSolution',
+        'ssl': 'SurfaceSlopeSolution', 'surfaceslope': 'SurfaceSlopeSolution',
+        'hy': 'HydrologySolution', 'hydrology': 'HydrologySolution',
+        'da': 'DamageEvolutionSolution', 'damageevolution': 'DamageEvolutionSolution',
+        'gia': 'GiaSolution',
+        'lv': 'LoveSolution', 'love': 'LoveSolution',
+        'esa': 'EsaSolution',
+        'smp': 'SamplingSolution', 'sampling': 'SamplingSolution',
+    }
+
+    key = solution_string.lower()
+    if key not in solution_map:
+        raise ValueError(f'prepare_nuopc_case error: solution "{solution_string}" not recognized!')
+
+    solution = solution_map[key]
+    if solution != 'TransientSolution':
+        raise ValueError('prepare_nuopc_case currently only supports TransientSolution.')
+
+    if getattr(md.transient, 'isoceancoupling', 0):
+        raise ValueError('prepare_nuopc_case expects md.transient.isoceancoupling = 0 because the NUOPC cap owns the coupling exchange.')
+
+    md.private.solution = solution
+
+    if check_consistency:
+        if md.verbose.solution:
+            print('Checking model consistency...')
+        is_model_self_consistent(md)
+
+    os.makedirs(case_dir, exist_ok = True)
+    case_dir = os.path.abspath(case_dir)
+    cwd = os.getcwd()
+
+    try:
+        os.chdir(case_dir)
+        marshall(md)
+        md.toolkits.write_toolkits_file(md.miscellaneous.name + '.toolkits')
+    finally:
+        os.chdir(cwd)
+
+    return {
+        'case_dir': case_dir,
+        'model_name': md.miscellaneous.name,
+        'solution_name': solution,
+    }
+
+
 def _write_model_field(fid, 
               prefix, 
               *, 
